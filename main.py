@@ -4,7 +4,7 @@ import requests
 from telebot import TeleBot
 from telebot.types import Message
 
-from settings import TOKEN, DEVICE_IP, CHECK_INTERVAL, MAX_FAIL_COUNT, CHANNEL_ID
+from settings import TOKEN, DEVICE_IP, CHECK_INTERVAL, MAX_FAIL_COUNT, CHANNEL_ID, OWNER_ID
 from logic.utils import get_avatar_image
 
 
@@ -50,30 +50,39 @@ def monitor_power():
         time.sleep(CHECK_INTERVAL)
 
 
+def check_permission(message):
+    return message.from_user.id == OWNER_ID
+
+
 @bot.message_handler(commands=['start_monitoring'])
 def start_monitoring(message: Message):
     global bot_on
-    if bot_on:
-        bot.reply_to(message, "Мониторинг уже включен ✅")
+    if check_permission(message):
+        if bot_on:
+            bot.reply_to(message, "Мониторинг уже включен ✅")
+        else:
+            bot_on = True
+            bot.reply_to(message, "Мониторинг включен ✅")
+            threading.Thread(target=monitor_power, daemon=True).start()
     else:
-        bot_on = True
-        bot.reply_to(message, "Мониторинг включен ✅")
-        threading.Thread(target=monitor_power, daemon=True).start()
+        bot.reply_to(message, "Недостаточно прав, для выполнения команды! ❌")
 
 
 @bot.message_handler(commands=['stop_monitoring'])
 def stop_monitoring(message: Message):
-    global bot_on
-    global status
-    if not bot_on:
-        bot.reply_to(message, "Мониторинг уже выключен ❌")
+    global bot_on, status
+    if check_permission(message):
+        if not bot_on:
+            bot.reply_to(message, "Мониторинг уже выключен ❌")
+        else:
+            bot_on = False
+            status = None
+            avatar_image = get_avatar_image(status)
+            with open(avatar_image, "rb") as avatar:
+                bot.set_chat_photo(chat_id=CHANNEL_ID, photo=avatar)
+            bot.reply_to(message, "Мониторинг выключен ❌")
     else:
-        bot_on = False
-        status = None
-        avatar_image = get_avatar_image(status)
-        with open(avatar_image, "rb") as avatar:
-            bot.set_chat_photo(chat_id=CHANNEL_ID, photo=avatar)
-        bot.reply_to(message, "Мониторинг выключен ❌")
+        bot.reply_to(message, "Недостаточно прав, для выполнения команды! ❌")
 
 
 if __name__ == "__main__":

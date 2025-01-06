@@ -12,6 +12,8 @@ TOKEN = os.getenv('TOKEN')  # Bot token
 CHANNEL_ID = os.getenv("CHANNEL_ID")  # ID chanel
 MAX_FAIL_COUNT = 3  # Max failed request checks
 
+OWNER_ID = os.getenv("OWNER_ID") # Owner id
+
 
 ROOT_DIR = os.path.dirname(__file__)
 
