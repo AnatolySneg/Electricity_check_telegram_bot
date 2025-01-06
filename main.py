@@ -13,6 +13,8 @@ bot = TeleBot(TOKEN)
 status = None
 fail_count = 0
 bot_on = False
+monitor_thread = None
+lock = threading.Lock()
 
 
 def check_device():
@@ -36,17 +38,15 @@ def send_notification(new_status):
 
 def monitor_power():
     global fail_count, bot_on
-    while True:
-        if bot_on:
-            is_available = check_device()
-            if is_available:
-                fail_count = 0
-                send_notification(True)
-
-            else:
-                fail_count += 1
-                if fail_count >= MAX_FAIL_COUNT:
-                    send_notification(False)
+    while bot_on:
+        is_available = check_device()
+        if is_available:
+            fail_count = 0
+            send_notification(True)
+        else:
+            fail_count += 1
+            if fail_count >= MAX_FAIL_COUNT:
+                send_notification(False)
         time.sleep(CHECK_INTERVAL)
 
 
@@ -56,33 +56,40 @@ def check_permission(message):
 
 @bot.message_handler(commands=['start_monitoring'])
 def start_monitoring(message: Message):
-    global bot_on
+    global bot_on, monitor_thread
     if check_permission(message):
-        if bot_on:
-            bot.reply_to(message, "Мониторинг уже включен ✅")
-        else:
-            bot_on = True
-            bot.reply_to(message, "Мониторинг включен ✅")
-            threading.Thread(target=monitor_power, daemon=True).start()
+        with lock:
+            if bot_on:
+                bot.reply_to(message, "Мониторинг уже включен ✅")
+            else:
+                bot_on = True
+                bot.reply_to(message, "Мониторинг включен ✅")
+
+                monitor_thread = threading.Thread(target=monitor_power, daemon=True)
+                monitor_thread.start()
     else:
-        bot.reply_to(message, "Недостаточно прав, для выполнения команды! ❌")
+        bot.reply_to(message, "Недостаточно прав для выполнения команды! ❌")
 
 
 @bot.message_handler(commands=['stop_monitoring'])
 def stop_monitoring(message: Message):
-    global bot_on, status
+    global bot_on, status, monitor_thread
     if check_permission(message):
-        if not bot_on:
-            bot.reply_to(message, "Мониторинг уже выключен ❌")
-        else:
-            bot_on = False
-            status = None
-            avatar_image = get_avatar_image(status)
-            with open(avatar_image, "rb") as avatar:
-                bot.set_chat_photo(chat_id=CHANNEL_ID, photo=avatar)
-            bot.reply_to(message, "Мониторинг выключен ❌")
+        with lock:
+            if not bot_on:
+                bot.reply_to(message, "Мониторинг уже выключен ❌")
+            else:
+                bot_on = False
+                status = None
+                avatar_image = get_avatar_image(status)
+                with open(avatar_image, "rb") as avatar:
+                    bot.set_chat_photo(chat_id=CHANNEL_ID, photo=avatar)
+                bot.reply_to(message, "Мониторинг выключен ❌")
+                # Ждем завершения потока, если он активен
+                if isinstance(monitor_thread, threading.Thread) and monitor_thread.is_alive():
+                    monitor_thread.join(timeout=CHECK_INTERVAL)
     else:
-        bot.reply_to(message, "Недостаточно прав, для выполнения команды! ❌")
+        bot.reply_to(message, "Недостаточно прав для выполнения команды! ❌")
 
 
 if __name__ == "__main__":
