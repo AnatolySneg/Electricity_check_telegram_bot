@@ -85,7 +85,6 @@ def stop_monitoring(message: Message):
                 with open(avatar_image, "rb") as avatar:
                     bot.set_chat_photo(chat_id=CHANNEL_ID, photo=avatar)
                 bot.reply_to(message, "Мониторинг выключен ❌")
-                # Ждем завершения потока, если он активен
                 if isinstance(monitor_thread, threading.Thread) and monitor_thread.is_alive():
                     monitor_thread.join(timeout=CHECK_INTERVAL)
     else:
