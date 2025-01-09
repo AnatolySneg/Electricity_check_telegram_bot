@@ -39,6 +39,7 @@ fail_count = 0
 bot_on = False
 monitor_thread = None
 lock = threading.Lock()
+avatar_cache = {}
 
 
 def check_device():
@@ -49,7 +50,7 @@ def check_device():
         bool: True if device is accessible, False otherwise
     """
     try:
-        response = requests.get(f"http://{DEVICE_IP}", timeout=5)
+        response = requests.head(f"http://{DEVICE_IP}", timeout=5)
         return response.status_code == 200
     except requests.RequestException as e:
         logger.error("Error, during checking device: %s", e)
@@ -69,9 +70,13 @@ def send_notification(new_status):
             status = new_status
             message = "Электроэнергия доступна ✅" if status else "Электроэнергия отсутствует ❌"
             bot.send_message(CHANNEL_ID, message)
-            avatar_image = get_avatar_image(status)
-            with open(avatar_image, "rb") as avatar:
-                bot.set_chat_photo(chat_id=CHANNEL_ID, photo=avatar)
+            
+            if new_status not in avatar_cache:
+                avatar_image = get_avatar_image(status)
+                with open(avatar_image, "rb") as avatar:
+                    avatar_cache[new_status] = avatar.read()
+            
+            bot.set_chat_photo(chat_id=CHANNEL_ID, photo=avatar_cache[new_status])
     except Exception as e:
         logger.error("Error, during sending notification: %s", e)
 
@@ -83,15 +88,21 @@ def monitor_power():
     Runs in a separate thread when monitoring is active.
     """
     global fail_count, bot_on
+    local_fail_count = 0
     try:
         while bot_on:
             is_available = check_device()
             if is_available:
-                fail_count = 0
+                if local_fail_count != 0:
+                    with lock:
+                        fail_count = 0
+                local_fail_count = 0
                 send_notification(True)
             else:
-                fail_count += 1
-                if fail_count >= MAX_FAIL_COUNT:
+                local_fail_count += 1
+                if local_fail_count >= MAX_FAIL_COUNT:
+                    with lock:
+                        fail_count = local_fail_count
                     send_notification(False)
             time.sleep(CHECK_INTERVAL)
     except Exception as e:
