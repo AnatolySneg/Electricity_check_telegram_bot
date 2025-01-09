@@ -1,3 +1,26 @@
+"""
+Telegram Bot for Monitoring Electricity Availability
+
+This script implements a Telegram bot that monitors electricity availability by checking
+a network device's accessibility. It sends notifications to a specified channel when
+the power status changes and updates the channel's avatar accordingly.
+
+Key Features:
+- Continuous monitoring of power availability
+- Telegram channel notifications
+- Avatar updates based on power status
+- Owner-only command access
+- Threaded monitoring process
+
+Configuration is handled through settings.py with the following parameters:
+- TOKEN: Telegram Bot API token
+- DEVICE_IP: IP address of the monitored device
+- CHECK_INTERVAL: Time between checks (in seconds)
+- MAX_FAIL_COUNT: Number of failed checks before declaring power outage
+- CHANNEL_ID: Telegram channel ID for notifications
+- OWNER_ID: Telegram user ID of the bot owner
+"""
+
 import time
 import threading
 import requests
@@ -19,6 +42,12 @@ lock = threading.Lock()
 
 
 def check_device():
+    """
+    Check if the monitored device is accessible over the network.
+
+    Returns:
+        bool: True if device is accessible, False otherwise
+    """
     try:
         response = requests.get(f"http://{DEVICE_IP}", timeout=5)
         return response.status_code == 200
@@ -28,6 +57,12 @@ def check_device():
 
 
 def send_notification(new_status):
+    """
+    Send power status notification to the Telegram channel and update channel avatar.
+
+    Args:
+        new_status (bool): Current power status (True for available, False for unavailable)
+    """
     global status
     try:
         if new_status != status:
@@ -42,6 +77,11 @@ def send_notification(new_status):
 
 
 def monitor_power():
+    """
+    Main monitoring loop that continuously checks power status.
+    Updates fail count and triggers notifications when necessary.
+    Runs in a separate thread when monitoring is active.
+    """
     global fail_count, bot_on
     try:
         while bot_on:
@@ -59,6 +99,15 @@ def monitor_power():
 
 
 def check_permission(message):
+    """
+    Check if the user has permission to execute bot commands.
+
+    Args:
+        message (Message): Telegram message object containing user information
+
+    Returns:
+        bool: True if user has permission, False otherwise
+    """
     if message.from_user.id == int(OWNER_ID):
         return True
     else:
@@ -68,6 +117,14 @@ def check_permission(message):
 
 @bot.message_handler(commands=['start_monitoring'])
 def start_monitoring(message: Message):
+    """
+    Handle the /start_monitoring command.
+    Starts the power monitoring thread if not already running.
+    Only accessible to the bot owner.
+
+    Args:
+        message (Message): Telegram message object containing the command
+    """
     global bot_on, monitor_thread
     try:
         if check_permission(message):
@@ -88,6 +145,14 @@ def start_monitoring(message: Message):
 
 @bot.message_handler(commands=['stop_monitoring'])
 def stop_monitoring(message: Message):
+    """
+    Handle the /stop_monitoring command.
+    Stops the power monitoring thread if running.
+    Only accessible to the bot owner.
+
+    Args:
+        message (Message): Telegram message object containing the command
+    """
     global bot_on, status, monitor_thread
     try:
         if check_permission(message):
