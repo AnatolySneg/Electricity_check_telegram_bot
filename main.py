@@ -31,9 +31,7 @@ from settings import TOKEN, DEVICE_IP, CHECK_INTERVAL, MAX_FAIL_COUNT, CHANNEL_I
 from logic.utils import get_avatar_image
 from logic.logs_conf import logger
 
-
 bot = TeleBot(TOKEN)
-
 status = None
 fail_count = 0
 bot_on = False
@@ -50,11 +48,26 @@ def check_device():
         bool: True if device is accessible, False otherwise
     """
     try:
-        response = requests.head(f"http://{DEVICE_IP}", timeout=5)
+        # Увеличиваем timeout и добавляем retry стратегию
+        session = requests.Session()
+        adapter = requests.adapters.HTTPAdapter(
+            max_retries=3,  # Количество повторных попыток
+            pool_connections=10,
+            pool_maxsize=10
+        )
+        session.mount('http://', adapter)
+        
+        response = session.head(
+            f"http://{DEVICE_IP}", 
+            timeout=10,  # Увеличенный timeout
+            allow_redirects=True
+        )
         return response.status_code == 200
     except requests.RequestException as e:
-        logger.error("Error, during checking device: %s", e)
+        logger.error("Error during checking device: %s", e)
         return False
+    finally:
+        session.close()
 
 
 def send_notification(new_status):
@@ -185,5 +198,58 @@ def stop_monitoring(message: Message):
         logger.error("Error, during execution of stop_monitoring command: %s", e)
 
 
+def run_bot():
+    """
+    Main bot function that handles bot initialization and polling
+    """
+    global bot, bot_on, monitor_thread, status
+    try:
+        bot = TeleBot(TOKEN)
+        # Добавляем параметры для более устойчивого соединения
+        bot.polling(none_stop=True, 
+                   interval=3,           # Интервал между запросами
+                   timeout=30,           # Таймаут соединения
+                   long_polling_timeout=5)  # Таймаут long polling
+    except requests.exceptions.ConnectionError as e:
+        logger.error("Connection error occurred: %s", e)
+        time.sleep(15)  # Увеличиваем время ожидания перед повторной попыткой
+        return False
+    except requests.exceptions.ReadTimeout as e:
+        logger.error("Timeout error occurred: %s", e)
+        time.sleep(10)
+        return False
+    except Exception as e:
+        logger.error("Bot crashed with error: %s", e)
+        # Очистка состояния перед перезапуском
+        if bot_on:
+            bot_on = False
+            if isinstance(monitor_thread, threading.Thread) and monitor_thread.is_alive():
+                monitor_thread.join(timeout=CHECK_INTERVAL)
+        status = None
+        time.sleep(10)
+        return False
+    return True
+
+
 if __name__ == "__main__":
-    bot.polling(none_stop=True)
+    retry_count = 0
+    max_retries = 5  # Максимальное количество быстрых повторных попыток
+    
+    while True:
+        try:
+            if run_bot():
+                retry_count = 0  # Сброс счетчика при успешном запуске
+                break
+            else:
+                retry_count += 1
+                if retry_count >= max_retries:
+                    logger.warning("Maximum retry attempts reached, waiting longer...")
+                    time.sleep(60)  # Длительное ожидание после множества попыток
+                    retry_count = 0
+                logger.info("Restarting bot... (attempt %d/%d)", retry_count, max_retries)
+        except KeyboardInterrupt:
+            logger.info("Bot stopped by user")
+            break
+        except Exception as e:
+            logger.error("Unexpected error: %s", e)
+            time.sleep(30)
